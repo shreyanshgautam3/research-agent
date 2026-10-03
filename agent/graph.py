@@ -9,7 +9,7 @@ Context policy (what is kept, summarised, or dropped):
 - Failed tool calls --------> kept as one short line
 """
 
-import json, asyncio
+import json, asyncio, os, re
 from typing import TypedDict
 import anthropic
 from pydantic import ValidationError
@@ -18,15 +18,22 @@ from langgraph.errors import GraphRecursionError
 from .schemas import ResearchReport, RunResult, normalise, check_grounding
 from .mcp_client import call_tool
 from dotenv import load_dotenv
+from datetime import date
 
 load_dotenv()
 
-MAIN_MODEL = "claude-haiku-4-5"
-EXTRACT_MODEL = "claude-haiku-4-5"
-PRICES = {"claude-haiku-4-5": (1.0, 5.0), "claude-sonnet-5-5": (2.0, 10.0)}
-COMPACT_AFTER = 8       # number of messages before history is replaced by notes
+MAIN_MODEL = os.getenv("AGENT_MODEL", "claude-haiku-4-5")
+EXTRACT_MODEL = os.getenv("EXTRACT_MODEL", "claude-haiku-4-5")
+PRICES = {"claude-haiku-4-5": (1.0, 5.0), "claude-sonnet-5-5": (2.0, 10.0)}  # $ per million tokens (in, out)
+COMPACT_AFTER = 4         # number of messages before history is replaced by notes
 
-SYSTEM = ("You are a research agent. Search the web, fetch the best sources, then stop."
+SYSTEM = (f"Today's date is {date.today().isoformat()}. You are a research agent. "
+          "Search the web, fetch the best sources, then stop. Prefer the most recent period "
+          "that has already been reported as of today, and say which period you used. "
+          "If the current period is not reported yet, answer with the latest completed period "
+          "and mention the newer partial data. "
+          "If your notes do not answer the question, search again with a different query "
+          "before stopping. If a fetch fails, try other URLs from the search results. "
           "Report facts only, no investment advice. Never cite a URL you did not fetch.")
 
 client = anthropic.AsyncAnthropic()
@@ -52,6 +59,7 @@ class State(TypedDict):
     question: str
     messages: list
     notes: list
+    candidates: list
     fetched: set
     seen: set
     repeats: int
@@ -83,14 +91,15 @@ def build_graph(session, tools, model, max_steps, max_cost, compact):
         else:
             reason = ""
 
-        return {"messages": state["messages"] + [{"role": "assistant", "content": resp.content}],
-                "cost": cost, "steps": steps, "stop_reason": reason}
+        return {"messages": state["messages"] + [{"role": "assistant",
+                "content": resp.content}], "cost": cost, "steps": steps, "stop_reason": reason}
 
     async def tools_node(state):
         question = state["question"]
         notes, cost = list(state["notes"]), state["cost"]
         seen, fetched = set(state["seen"]), set(state["fetched"])
         trace, repeats = list(state["trace"]), state["repeats"]
+        candidates = list(state["candidates"])
         results = []
 
         for block in state["messages"][-1]["content"]:
@@ -112,48 +121,76 @@ def build_graph(session, tools, model, max_steps, max_cost, compact):
                     text, extra = await extract_notes(question, url, text)   # raw page is dropped here
                     cost += extra
                     notes.append(f"[{url}]\n{text}")
+                elif block.name == "web_search":
+                    # result lines look like: - title | url | snippet
+                    candidates += re.findall(r"\| (https?://\S+) \|", text)
 
             trace.append({"step": state["steps"], "tool": block.name, "args": block.input,
-                          "error": is_error, "chars": len(text)})
+                          "error": is_error, "chars": len(text),
+                          "note": text[:100] if is_error else ""})
             results.append({"type": "tool_result", "tool_use_id": block.id,
                             "content": text, "is_error": is_error})
 
-        messages = state["messages"] + [{"role": "user", "content": results}]
-        if compact and len(messages) > COMPACT_AFTER:
-            messages = [{"role": "user", "content":
-                         f"Question: {question}\n\nNotes so far:\n" + "\n\n".join(notes) +
-                         "\n\nContinue researching, or stop if you have enough."}]
+        new_results = {"role": "user", "content": results}
+
+        if compact and len(state["messages"]) > COMPACT_AFTER:
+            tried = "\n".join(
+                f"- {t['tool']} {json.dumps(t['args'])}: {'FAILED' if t['error'] else 'ok'}"
+                for t in trace if "tool" in t)
+            todo = [u for u in dict.fromkeys(candidates) if normalise(u) not in fetched]
+            summary = {"role": "user", "content":
+                       f"Question: {question}\n\nNotes so far:\n" + "\n\n".join(state["notes"]) +
+                       "\n\nSearch results not fetched yet:\n" + "\n".join(todo[:10]) +
+                       f"\n\nAlready tried (do not repeat):\n{tried}"
+                       "\n\nContinue researching, or stop if you have enough."}
+            # keep the latest exchange so the model still reads the results it just asked for
+            messages = [summary, state["messages"][-1], new_results]
+            trace.append({"step": state["steps"], "event": "compacted"})
+        else:
+            messages = state["messages"] + [new_results]
 
         return {"messages": messages, "notes": notes, "cost": cost, "seen": seen,
-                "fetched": fetched, "trace": trace, "repeats": repeats}
+                "fetched": fetched, "trace": trace, "repeats": repeats,
+                "candidates": candidates}
 
 
     async def synthesise(state):
-        tool = {"name": "submit_report", "description": "Submit the final report",
-                "input_schema": ResearchReport.model_dump_json()}
+        tool = {"name": "submit_report", "description": "Submit the final report.",
+                "input_schema": ResearchReport.model_json_schema()}
         notes_text = "\n\n".join(state["notes"]) or "(no sources were fetched)"
         msgs = [{"role": "user", "content":
-                    f"Question: {state["question"]}\n\nNotes from fetched sources:\n{notes_text}\n\n"
-                    "Submit the final report with submi_report. Cite only URLs that appear in the notes. "
-                    "If the notes are not enough, say so in limitations."}]
+                 f"Question: {state['question']}\n\nNotes from fetched sources:\n{notes_text}\n\n"
+                 "Submit the final report by calling the submit_report tool once. "
+                 "Cite only URLs that appear in the notes. "
+                 "If the notes are not enough, say so in limitations." 
+                 "One finding per claim: if several sources support the same claim, list all of them in that finding."}]
         cost = state["cost"]
 
-        for _ in range(3):
+        for _ in range(3):                                  # first try + 2 retries
             resp = await client.messages.create(
-                model=model, max_tokens=2000, system=SYSTEM, tools=[tool],
-                tool_choice={"type": "tool", "name": "submit_report"}, messages=msgs
-            )
+                model=model, max_tokens=4000, system=SYSTEM, tools=[tool], messages=msgs)
             cost += cost_of(model, resp.usage)
-            block = next(b for b in resp.content if b.type == "tool_use")
-            try:
-                report = ResearchReport.model_validate(block.input)
-                check_grounding(report, state["fetched"])
-                return {"report": report, "cost": cost}
-            except (ValidationError, ValueError) as e:
+            calls = [b for b in resp.content if b.type == "tool_use"]
+
+            if not calls:                                   # model answered with text instead of the tool
                 msgs += [{"role": "assistant", "content": resp.content},
-                         {"role": "user", "content": [{"type": "tool_result", "tool_use_id": block.id,
-                                                       "content": f"Invalid: {e}. Fix it and resubmit.",
-                                                       "is_error": True}]}]
+                         {"role": "user", "content": "You must call the submit_report tool now."}]
+                continue
+
+            error = ""
+            for call in calls:                              # accept the first valid call
+                try:
+                    report = ResearchReport.model_validate(call.input)
+                    check_grounding(report, state["fetched"])
+                    return {"report": report, "cost": cost}
+                except (ValidationError, ValueError) as e:
+                    error = str(e)
+
+            msgs += [{"role": "assistant", "content": resp.content},
+                     {"role": "user", "content": [          # one tool_result for EVERY tool_use
+                         {"type": "tool_result", "tool_use_id": call.id,
+                          "content": f"Invalid: {error}. Fix it and resubmit.", "is_error": True}
+                         for call in calls]}]
 
         return {"report": None, "cost": cost, "stop_reason": "error"}
 
@@ -177,13 +214,15 @@ async def run_agent(question, session, tools, model=MAIN_MODEL,
     graph = build_graph(session, tools, model, max_steps, max_cost, compact)
     start = {"question": question,
              "messages": [{"role": "user", "content": question}],
-             "notes": [], "fetched": set(), "seen": set(), "repeats": 0,
+             "notes": [], "candidates": [], "fetched": set(), "seen": set(), "repeats": 0,
              "cost": 0.0, "steps": 0, "trace": [], "stop_reason": "", "report": None}
 
+    
     try:
         out = await asyncio.wait_for(
-            graph.ainvoke(start, {"recursion_limit": 2 + max_steps + 10}), timeout)
+            graph.ainvoke(start, {"recursion_limit": 2 * max_steps + 10}), timeout)
     except (asyncio. TimeoutError, GraphRecursionError):
         return RunResult(report=None, stop_reason="error", steps_cost=0, cost_usd=0.0, trace=[])
     return RunResult(report=out["report"], stop_reason=out["stop_reason"],
-                     steps_used=out["steps"], cost_usd=round(out["cost_usd"], 4), trace=out["trace"])
+                     steps_used=out["steps"], cost_usd=round(out["cost"], 4),
+                     trace=out["trace"], notes=out["notes"])
