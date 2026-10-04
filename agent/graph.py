@@ -35,6 +35,7 @@ SYSTEM = (f"Today's date is {date.today().isoformat()}. You are a research agent
           "and mention the newer partial data. "
           "If your notes do not answer the question, search again with a different query "
           "before stopping. If a fetch fails, try other URLs from the search results. "
+          "If the question's name could refer to more than one company, say so and state which one you used. "
           "Report facts only, no investment advice. Never cite a URL you did not fetch."
           "You must use web_search before answering. Never answer from memory. "
           "Prefer primary sources (the company's own results release or its sec.gov filings) over news articles, and say so if you could only find secondary sources. ")

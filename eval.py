@@ -33,6 +33,8 @@ async def main(compact):
             "duplicates": sum(1 for t in trace if t.get("note", "").startswith("Duplicate")),
             "failed_calls": sum(1 for t in trace if t.get("error")),
             "fetched_ok": sum(1 for t in trace if t.get("tool") == "fetch_url" and not t["error"]),
+            "notes": result.notes,
+            "errors": [t["note"] for t in trace if t.get("error")],
             "report": result.report.model_dump() if result.report else None,
         }
 

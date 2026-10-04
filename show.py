@@ -4,6 +4,7 @@ for line in open(sys.argv[1], encoding="utf-8"):
     row = json.loads(line)
     print("Q:", row["question"][:70])
     print("  steps:", row["steps"], "cost:", row["cost"], "compactions:", row["compactions"], "duplicates:", row["duplicates"])
+    print("  errors:", row.get("errors"))
     rep = row["report"]
     if rep:
         print("  SUMMARY:", rep["summary"])

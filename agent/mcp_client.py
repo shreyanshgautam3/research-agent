@@ -29,9 +29,9 @@ async def list_anthropic_tools(client):
 async def call_tool(client, name, args):
     """Run one tool. Returns (text, is_error). Never raises."""
     try:
-        result = await asyncio.wait_for(client.call_tool(name, args), timeout=30)
+        result = await asyncio.wait_for(client.call_tool(name, args), timeout=60)
     except asyncio.TimeoutError:
-        return f"{name} timed out after 30s", True
+        return f"{name} timed out after 60s", True
     except Exception as e:
         return f"{name} failed: {e}", True
     text = "".join(c.text for c in result.content if c.type == "text")
