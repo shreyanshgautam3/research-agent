@@ -27,6 +27,7 @@ EXTRACT_MODEL = os.getenv("EXTRACT_MODEL", "claude-haiku-4-5")
 PRICES = {"claude-haiku-4-5": (1.0, 5.0), "claude-sonnet-5-5": (2.0, 10.0)}  # $ per million tokens (in, out)
 COMPACT_AFTER = 4         # number of messages before history is replaced by notes
 
+
 SYSTEM = (f"Today's date is {date.today().isoformat()}. You are a research agent. "
           "Search the web, fetch the best sources, then stop. Prefer the most recent period "
           "that has already been reported as of today, and say which period you used. "
@@ -34,7 +35,9 @@ SYSTEM = (f"Today's date is {date.today().isoformat()}. You are a research agent
           "and mention the newer partial data. "
           "If your notes do not answer the question, search again with a different query "
           "before stopping. If a fetch fails, try other URLs from the search results. "
-          "Report facts only, no investment advice. Never cite a URL you did not fetch.")
+          "Report facts only, no investment advice. Never cite a URL you did not fetch."
+          "You must use web_search before answering. Never answer from memory. "
+          "Prefer primary sources (the company's own results release or its sec.gov filings) over news articles, and say so if you could only find secondary sources. ")
 
 client = anthropic.AsyncAnthropic()
 
@@ -163,7 +166,8 @@ def build_graph(session, tools, model, max_steps, max_cost, compact):
                  "Submit the final report by calling the submit_report tool once. "
                  "Cite only URLs that appear in the notes. "
                  "If the notes are not enough, say so in limitations." 
-                 "One finding per claim: if several sources support the same claim, list all of them in that finding."}]
+                 "One finding per claim: if several sources support the same claim, list all of them in that finding."
+                 "The research is already finished; the notes are your only source. Do not mention which tools were available. "}]
         cost = state["cost"]
 
         for _ in range(3):                                  # first try + 2 retries
@@ -223,6 +227,8 @@ async def run_agent(question, session, tools, model=MAIN_MODEL,
             graph.ainvoke(start, {"recursion_limit": 2 * max_steps + 10}), timeout)
     except (asyncio. TimeoutError, GraphRecursionError):
         return RunResult(report=None, stop_reason="error", steps_cost=0, cost_usd=0.0, trace=[])
-    return RunResult(report=out["report"], stop_reason=out["stop_reason"],
-                     steps_used=out["steps"], cost_usd=round(out["cost"], 4),
-                     trace=out["trace"], notes=out["notes"])
+    reason = out["stop_reason"]
+    if reason == "completed" and not out["notes"]:
+        reason = "no_sources"
+    return RunResult(report=out["report"], stop_reason=reason,
+                     steps_used=out["steps"], cost_usd=round(out["cost"], 4), trace=out["trace"])

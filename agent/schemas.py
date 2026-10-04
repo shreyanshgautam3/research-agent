@@ -16,7 +16,7 @@ class ResearchReport(BaseModel):        # model produces this
 
 class RunResult(BaseModel):
     report: ResearchReport | None
-    stop_reason: Literal["completed", "max_steps", "budget", "loop_detected", "error"]
+    stop_reason: Literal["completed", "max_steps", "budget", "loop_detected", "error", "no_sources"]
     steps_used: int
     cost_usd: float
     trace: list[dict]
