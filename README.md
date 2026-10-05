@@ -70,7 +70,7 @@ The final call offers a `submit_report` tool whose schema is the Pydantic model.
 - Max 10 steps, a $0.40 cost cap and a 120 s timeout per run.
 - Exact duplicate tool calls are blocked, and three repeats stop the run (`loop_detected`).
 - Tool errors become short one-line observations, so the agent adapts instead of crashing. Timeouts are retried once.
-- Fetch safety: public http(s) addresses only, 10 MB download cap, 60,000 characters returned, PDFs read up to 15 pages.
+- Fetch safety: public http(s) addresses only, 10 MB download cap, 50,000 characters returned, PDFs read up to 15 pages.
 - API: key required, one run at a time, a spend limit and a question-length limit.
 
 ## Evaluation

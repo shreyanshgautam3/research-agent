@@ -61,14 +61,13 @@ What worked, what failed and what I did about it. Numbers come from the evaluati
 | 4 | Confidence labels differ between runs for the same fact (high, high, medium) and early runs gave "high" on a single secondary source | Confidence is self-reported by the model | Open. Computing it in code is a next step |
 | 5 | The grounding check passes if the cited URL was fetched, even if the page does not support the claim | It checks URLs, not content | Open. I spot-checked the Apple runs and found the notes supported the claims. Not checked systematically |
 | 6 | Duplicate URLs across findings, and process notes such as "the 10-K excerpt was truncated" appearing as findings | The prompt does not stop the model splitting one fact per source | Open, cosmetic |
-| 7 | `stop_reason: completed` appears on runs that found no sources at all | The label only means the model stopped calling tools | Open. A separate "no sources" reason is a next step |
-| 8 | A report said "my search failed" when the trace showed no tool errors | The final report step explains process problems it cannot observe | Open |
-| 9 | A 10-K as HTML returns only the cover page and table of contents | Character cap and document structure | Known limit. Press releases (8-K exhibits) work well |
-| 10 | Some sites block automated clients (403 from macrotrends and some news and IR pages), plus occasional timeouts and 503s | Site policy and network conditions | Not fixable here. The agent falls back to other sources or reports partial results |
-| 11 | The extraction note sometimes gave the period end date as the release date | Haiku confused two dates | Open. Did not reach a final report |
-| 12 | An HTTP 400 on the report step in one of about three early Sonnet runs ("tool_use ids were found without tool_result blocks") | Diagnosed: when a response contained several `submit_report` calls and the first failed validation, the retry message answered only one of them. The fix is a tool result for every call | Not triggered in the 30 evaluation runs |
-| 13 | Deployment limits: run history and spend counter reset on restart, the counter ignores crashed runs, one shared API key, cold start of about a minute on the free tier | In-memory state, simple auth, free instance | Documented. A persistent store and per-user keys would be needed for wider use |
-| 14 | Security gaps: a response is size-checked after it is downloaded, and DNS rebinding is not handled by the SSRF guard | Simple implementation | Open |
+| 7 | A report said "my search failed" when the trace showed no tool errors | The final report step explains process problems it cannot observe | Open |
+| 8 | A 10-K as HTML returns only the cover page and table of contents | Character cap and document structure | Known limit. Press releases (8-K exhibits) work well |
+| 9 | Some sites block automated clients (403 from macrotrends and some news and IR pages), plus occasional timeouts and 503s | Site policy and network conditions | Not fixable here. The agent falls back to other sources or reports partial results |
+| 10 | The extraction note sometimes gave the period end date as the release date | Haiku confused two dates | Open. Did not reach a final report |
+| 11 | An HTTP 400 on the report step in one of about three early Sonnet runs ("tool_use ids were found without tool_result blocks") | Diagnosed: when a response contained several `submit_report` calls and the first failed validation, the retry message answered only one of them. The fix is a tool result for every call | Not triggered in the 30 evaluation runs |
+| 12 | Deployment limits: run history and spend counter reset on restart, the counter ignores crashed runs, one shared API key, cold start of about a minute on the free tier | In-memory state, simple auth, free instance | Documented. A persistent store and per-user keys would be needed for wider use |
+| 13 | Security gaps: a response is size-checked after it is downloaded, and DNS rebinding is not handled by the SSRF guard | Simple implementation | Open |
 
 ## What held up
 
