@@ -14,7 +14,8 @@ SERVER_PATH = os.path.join(os.path.dirname(__file__), "..", "server", "tools_ser
 SERVER = StdioServerParameters(
     command=sys.executable,
     args=[SERVER_PATH],
-    env={"TAVILY_API_KEY": os.environ["TAVILY_API_KEY"]},   # the child process does not inherit your environment
+    env={"TAVILY_API_KEY": os.environ["TAVILY_API_KEY"],
+         "FETCH_USER_AGENT": os.environ.get("FETCH_USER_AGENT", "research-agent/0.1")},   # the child process does not inherit your environment
 )
 
 
