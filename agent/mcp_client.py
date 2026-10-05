@@ -15,7 +15,7 @@ SERVER = StdioServerParameters(
     command=sys.executable,
     args=[SERVER_PATH],
     env={"TAVILY_API_KEY": os.environ["TAVILY_API_KEY"],
-         "FETCH_USER_AGENT": os.environ.get("FETCH_USER_AGENT", "research-agent/0.1")},   # the child process does not inherit your environment
+         "FETCH_USER_AGENT": os.environ.get("FETCH_USER_AGENT", "research-agent/0.1")},
 )
 
 
