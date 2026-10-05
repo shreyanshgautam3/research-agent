@@ -118,11 +118,11 @@ def build_graph(session, tools, model, max_steps, max_cost, compact):
                 seen.add(key)
                 text, is_error = await call_tool(session, block.name, block.input)
                 if is_error:
-                    text = text[:200]                       # keep failed calls to one short line
+                    text = text[:200]
                 elif block.name == "fetch_url":
                     url = block.input["url"]
                     fetched.add(normalise(url))
-                    text, extra = await extract_notes(question, url, text)   # raw page is dropped here
+                    text, extra = await extract_notes(question, url, text)
                     cost += extra
                     notes.append(f"[{url}]\n{text}")
                 elif block.name == "web_search":
@@ -147,7 +147,6 @@ def build_graph(session, tools, model, max_steps, max_cost, compact):
                        "\n\nSearch results not fetched yet:\n" + "\n".join(todo[:10]) +
                        f"\n\nAlready tried (do not repeat):\n{tried}"
                        "\n\nContinue researching, or stop if you have enough."}
-            # keep the latest exchange so the model still reads the results it just asked for
             messages = [summary, state["messages"][-1], new_results]
             trace.append({"step": state["steps"], "event": "compacted"})
         else:
@@ -171,19 +170,19 @@ def build_graph(session, tools, model, max_steps, max_cost, compact):
                  "The research is already finished; the notes are your only source. Do not mention which tools were available. "}]
         cost = state["cost"]
 
-        for _ in range(3):                                  # first try + 2 retries
+        for _ in range(3):                      # first try + 2 retries
             resp = await client.messages.create(
                 model=model, max_tokens=4000, system=SYSTEM, tools=[tool], messages=msgs)
             cost += cost_of(model, resp.usage)
             calls = [b for b in resp.content if b.type == "tool_use"]
 
-            if not calls:                                   # model answered with text instead of the tool
+            if not calls:                       # model answered with text instead of the tool
                 msgs += [{"role": "assistant", "content": resp.content},
                          {"role": "user", "content": "You must call the submit_report tool now."}]
                 continue
 
             error = ""
-            for call in calls:                              # accept the first valid call
+            for call in calls:
                 try:
                     report = ResearchReport.model_validate(call.input)
                     check_grounding(report, state["fetched"])
@@ -192,7 +191,7 @@ def build_graph(session, tools, model, max_steps, max_cost, compact):
                     error = str(e)
 
             msgs += [{"role": "assistant", "content": resp.content},
-                     {"role": "user", "content": [          # one tool_result for EVERY tool_use
+                     {"role": "user", "content": [
                          {"type": "tool_result", "tool_use_id": call.id,
                           "content": f"Invalid: {error}. Fix it and resubmit.", "is_error": True}
                          for call in calls]}]

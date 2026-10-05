@@ -1,10 +1,11 @@
 from dotenv import load_dotenv
-load_dotenv()   # must run before the agent imports below
+load_dotenv()
 
 import os
 import uuid
 import asyncio
 from fastapi import FastAPI, Header, HTTPException, BackgroundTasks
+from fastapi.responses import FileResponse
 from pydantic import BaseModel
 from mcp import Client
 from agent.mcp_client import SERVER, list_anthropic_tools
@@ -14,12 +15,12 @@ app = FastAPI(title="Research Agent")
 
 API_KEY = os.environ["API_KEY"]
 SPEND_LIMIT = float(os.getenv("SPEND_LIMIT_USD", "3"))
-COMPACT = os.getenv("COMPACT", "off") == "on"       # off was cheaper per correct answer in testing
-MAX_ACTIVE = 3                                       # queued + running
+COMPACT = os.getenv("COMPACT", "off") == "on"
+MAX_ACTIVE = 3
 
-runs = {}                  # run_id -> {"status", "question", "result" / "error"}
-spend = {"total": 0.0}     # resets when the server restarts
-lock = asyncio.Lock()      # one agent run at a time
+runs = {}
+spend = {"total": 0.0}
+lock = asyncio.Lock()
 
 
 class ResearchRequest(BaseModel):
@@ -63,7 +64,7 @@ async def start_research(req: ResearchRequest, background: BackgroundTasks,
     if active >= MAX_ACTIVE:
         raise HTTPException(status_code=429, detail="too many runs in progress")
 
-    if len(runs) >= 50:                     # keep memory bounded
+    if len(runs) >= 50:
         runs.pop(next(iter(runs)))
     run_id = uuid.uuid4().hex[:8]
     runs[run_id] = {"status": "queued", "question": req.question}
@@ -77,3 +78,8 @@ async def get_research(run_id: str, x_api_key: str = Header(default="")):
     if run_id not in runs:
         raise HTTPException(status_code=404, detail="unknown run id")
     return runs[run_id]
+
+
+@app.get("/")
+async def home():
+    return FileResponse(os.path.join(os.path.dirname(__file__), "index.html"))

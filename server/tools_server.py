@@ -98,4 +98,4 @@ def fetch_url(url: str) -> str:
 
 
 if __name__ == "__main__":
-    mcp.run(transport="stdio")   # never use print() here: it corrupts the protocol
+    mcp.run(transport="stdio")

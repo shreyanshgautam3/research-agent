@@ -1,0 +1,84 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <meta name="color-scheme" content="light dark">
+  <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/@picocss/pico@2/css/pico.min.css">
+  <title>Research Agent</title>
+</head>
+<body>
+<main class="container">
+  <hgroup>
+    <h1>Research Agent</h1>
+    <p>Ask a research question. The agent searches the web, reads sources, and returns a cited report.</p>
+  </hgroup>
+
+  <input id="key" type="password" placeholder="API key">
+  <textarea id="question" rows="3" placeholder="e.g. What was NVIDIA's total revenue for fiscal 2026?"></textarea>
+  <button id="go" onclick="start()">Research</button>
+  <p id="status"></p>
+  <article id="result" hidden></article>
+</main>
+
+<script>
+const $ = (id) => document.getElementById(id);
+
+function esc(s) {
+  return String(s).replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;").replace(/"/g, "&quot;");
+}
+
+async function start() {
+  const key = $("key").value.trim();
+  const question = $("question").value.trim();
+  if (!key || !question) { $("status").textContent = "Enter an API key and a question."; return; }
+
+  $("go").disabled = true;
+  $("result").hidden = true;
+  $("status").textContent = "Starting...";
+  try {
+    const res = await fetch("/research", {
+      method: "POST",
+      headers: {"Content-Type": "application/json", "X-API-Key": key},
+      body: JSON.stringify({question}),
+    });
+    if (!res.ok) throw new Error((await res.json()).detail || res.status);
+    const {run_id} = await res.json();
+    await poll(run_id, key);
+  } catch (e) {
+    $("status").textContent = "Error: " + e.message;
+  }
+  $("go").disabled = false;
+}
+
+async function poll(runId, key) {
+  while (true) {
+    const res = await fetch("/research/" + runId, {headers: {"X-API-Key": key}});
+    const run = await res.json();
+    $("status").textContent = "Status: " + run.status + " ...";
+    if (run.status === "done") { show(run.result); $("status").textContent = ""; return; }
+    if (run.status === "error") { $("status").textContent = "Run failed: " + run.error; return; }
+    await new Promise(r => setTimeout(r, 3000));
+  }
+}
+
+function show(r) {
+  const rep = r.report;
+  let html = "";
+  if (rep) {
+    html += "<h3>Summary</h3><p>" + esc(rep.summary) + "</p><h3>Findings</h3>";
+    for (const f of rep.findings) {
+      html += "<p>" + esc(f.claim) + " <mark>" + esc(f.confidence) + "</mark><br>" +
+        f.source_urls.map(u => '<a href="' + esc(u) + '" target="_blank" rel="noopener">' + esc(u) + "</a>").join("<br>") + "</p>";
+    }
+    html += "<h3>Limitations</h3><p>" + esc(rep.limitations) + "</p>";
+  } else {
+    html += "<p>No report was produced.</p>";
+  }
+  html += "<footer><small>" + esc(r.stop_reason) + " · " + r.steps_used + " steps · $" + r.cost_usd.toFixed(3) + "</small></footer>";
+  $("result").innerHTML = html;
+  $("result").hidden = false;
+}
+</script>
+</body>
+</html>
